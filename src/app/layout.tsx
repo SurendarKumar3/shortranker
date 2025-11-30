@@ -8,6 +8,10 @@ import { Toaster } from "@/components/ui/sonner";
 export const metadata: Metadata = {
   title: "ShortsRanker - Create Epic Countdown Videos",
   description: "Upload 5 clips, rank them #5 to #1, and let AI generate the perfect voice-over for your compilation.",
+  icons: {
+    icon: '/favicon.ico',
+    shortcut: '/favicon.ico'
+  }
 };
 
 export default function RootLayout({

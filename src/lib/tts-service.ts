@@ -13,6 +13,7 @@
 import { writeFile, mkdir, unlink, readFile } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
+import os from "os";
 import { exec } from "child_process";
 import { promisify } from "util";
 
@@ -41,8 +42,8 @@ export type TTSService = "mock" | "huggingface" | "elevenlabs" | "coqui";
 // ============================================================================
 
 const TTS_CONFIG = {
-  // Temp directory for audio files
-  tempDir: "/tmp/shorts-ranker/tts",
+  // Temp directory for audio files (use OS temp dir for cross-platform)
+  tempDir: path.join(os.tmpdir(), "shorts-ranker", "tts"),
   
   // Maximum characters per TTS request (to handle rate limits)
   maxCharsPerChunk: 1000,
@@ -175,26 +176,75 @@ async function generateMockTTS(
   const duration = Math.max(10, Math.ceil((wordCount / TTS_CONFIG.wordsPerMinute) * 60));
   
   try {
-    // Generate silent audio using ffmpeg
-    const command = [
-      "ffmpeg -y",
-      "-f lavfi",
-      `-i anullsrc=r=${TTS_CONFIG.audio.sampleRate}:cl=stereo`,
-      `-t ${duration}`,
-      "-acodec libmp3lame",
-      "-q:a 2",
-      `"${outputPath}"`,
-    ].join(" ");
-    
-    await execAsync(command);
-    
-    console.log(`[TTS Mock] Generated silent audio: ${duration}s for ${wordCount} words`);
-    
-    return {
-      audioPath: outputPath,
-      duration,
-      service: "mock",
-    };
+    // Prefer ffmpeg if available (keeps existing behavior)
+    try {
+      await execAsync("ffmpeg -version");
+      // Generate silent audio using ffmpeg
+      const command = [
+        "ffmpeg -y",
+        "-f lavfi",
+        `-i anullsrc=r=${TTS_CONFIG.audio.sampleRate}:cl=stereo`,
+        `-t ${duration}`,
+        "-acodec libmp3lame",
+        "-q:a 2",
+        `\"${outputPath}\"`,
+      ].join(" ");
+
+      await execAsync(command);
+
+      console.log(`[TTS Mock] Generated silent audio via ffmpeg: ${duration}s for ${wordCount} words`);
+
+      return {
+        audioPath: outputPath,
+        duration,
+        service: "mock",
+      };
+    } catch {
+      // ffmpeg not available — write a silent WAV file directly
+      const sampleRate = TTS_CONFIG.audio.sampleRate;
+      const channels = 2;
+      const bitsPerSample = 16;
+      const byteRate = sampleRate * channels * bitsPerSample / 8;
+      const blockAlign = channels * bitsPerSample / 8;
+      const numSamples = sampleRate * duration;
+      const dataSize = numSamples * blockAlign;
+
+      // WAV header (44 bytes)
+      const header = Buffer.alloc(44);
+      header.write("RIFF", 0); // ChunkID
+      header.writeUInt32LE(36 + dataSize, 4); // ChunkSize
+      header.write("WAVE", 8); // Format
+      header.write("fmt ", 12); // Subchunk1ID
+      header.writeUInt32LE(16, 16); // Subchunk1Size (PCM)
+      header.writeUInt16LE(1, 20); // AudioFormat (PCM)
+      header.writeUInt16LE(channels, 22); // NumChannels
+      header.writeUInt32LE(sampleRate, 24); // SampleRate
+      header.writeUInt32LE(byteRate, 28); // ByteRate
+      header.writeUInt16LE(blockAlign, 32); // BlockAlign
+      header.writeUInt16LE(bitsPerSample, 34); // BitsPerSample
+      header.write("data", 36); // Subchunk2ID
+      header.writeUInt32LE(dataSize, 40); // Subchunk2Size
+
+      // Create silent PCM buffer (zeros)
+      const silence = Buffer.alloc(dataSize, 0);
+
+      // Ensure directory exists
+      await ensureTTSDirectory();
+      // If outputPath doesn't end with .wav, switch to .wav so content matches
+      if (!outputPath.toLowerCase().endsWith('.wav')) {
+        outputPath = outputPath.replace(/\.[^.]+$/, '.wav');
+      }
+      // Write header + silence
+      await writeFile(outputPath, Buffer.concat([header, silence]));
+
+      console.log(`[TTS Mock] Generated silent WAV (no ffmpeg): ${duration}s at ${outputPath}`);
+
+      return {
+        audioPath: outputPath,
+        duration,
+        service: "mock",
+      };
+    }
   } catch (error) {
     console.error("[TTS Mock] Failed to generate silent audio:", error);
     throw new Error(`Mock TTS failed: ${error instanceof Error ? error.message : "Unknown error"}`);

@@ -1,0 +1,50 @@
+import type { swcMinify: false, NextConfig } from "next";
+import path from "node:path";
+
+const LOADER = path.resolve(__dirname, 'src/visual-edits/component-tagger-loader.js');
+
+const nextConfig: NextConfig = { swcMinify: false,
+  // Temporary fallback: disable SWC minify so Next uses Babel for minification
+  // Remove this once the native SWC binary issue is resolved.
+  swcMinify: false,
+  images: { swcMinify: false,
+    remotePatterns: [
+      { swcMinify: false,
+        protocol: 'https',
+        hostname: '**',
+      },
+      { swcMinify: false,
+        protocol: 'http',
+        hostname: '**',
+      },
+    ],
+  },
+  outputFileTracingRoot: path.resolve(__dirname, '../../'),
+  typescript: { swcMinify: false,
+    ignoreBuildErrors: true,
+  },
+  eslint: { swcMinify: false,
+    ignoreDuringBuilds: true,
+  },
+  // Allow cross-origin requests in development
+  allowedDevOrigins: [
+    "https://www.orchids.app",
+    "https://*.orchids.app",
+    "https://*.daytona.works",
+  ],
+  turbopack: { swcMinify: false,
+    rules: { swcMinify: false,
+      "*.{ swcMinify: false,jsx,tsx}": { swcMinify: false,
+        loaders: [LOADER]
+      }
+    }
+  },
+  // Deployment optimizations
+  experimental: { swcMinify: false,
+    serverActions: { swcMinify: false,
+      bodySizeLimit: '100mb', // Allow large video uploads
+    },
+  },
+};
+
+export default nextConfig;
